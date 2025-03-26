@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import type { AnalysisResult } from "@/types/analysis"
 import { Chart, registerables } from "chart.js"
 import { Info } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Skeleton } from "@/components/ui/skeleton"
 
 Chart.register(...registerables)
 
@@ -18,6 +19,9 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
   const redFlagsFrequencyChartRef = useRef<HTMLCanvasElement>(null)
   const monthlyAnalysisChartRef = useRef<HTMLCanvasElement>(null)
   const riskDistributionChartRef = useRef<HTMLCanvasElement>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [statsData, setStatsData] = useState<any>(null)
 
   const charts = useRef<{ [key: string]: Chart | null }>({
     safetyDistribution: null,
@@ -27,7 +31,27 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
   })
 
   useEffect(() => {
-    if (analyses.length > 0) {
+    fetchStatistics()
+  }, [])
+
+  const fetchStatistics = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch("/api/statistics")
+      if (!response.ok) {
+        throw new Error("統計情報の取得に失敗しました")
+      }
+      const data = await response.json()
+      setStatsData(data)
+      setLoading(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "統計情報の取得中にエラーが発生しました")
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (statsData && !loading) {
       updateCharts()
     }
 
@@ -35,7 +59,7 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
       // クリーンアップ
       Object.values(charts.current).forEach((chart) => chart?.destroy())
     }
-  }, [analyses])
+  }, [statsData, loading])
 
   const updateCharts = () => {
     updateSafetyDistributionChart()
@@ -45,21 +69,21 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
   }
 
   const updateSafetyDistributionChart = () => {
-    if (safetyDistributionChartRef.current) {
+    if (safetyDistributionChartRef.current && statsData?.scoreDistribution) {
       if (charts.current.safetyDistribution) charts.current.safetyDistribution.destroy()
 
       const ctx = safetyDistributionChartRef.current.getContext("2d")
       if (ctx) {
-        const distribution = calculateScoreDistribution()
+        const distribution = statsData.scoreDistribution
 
         charts.current.safetyDistribution = new Chart(ctx, {
           type: "bar",
           data: {
-            labels: ["0-20%", "21-40%", "41-60%", "61-80%", "81-100%"],
+            labels: distribution.map((item: any) => item.score_range),
             datasets: [
               {
                 label: "安全性スコア分布",
-                data: distribution,
+                data: distribution.map((item: any) => item.count),
                 backgroundColor: [
                   "rgba(255, 99, 132, 0.7)",
                   "rgba(255, 159, 64, 0.7)",
@@ -120,14 +144,14 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
   }
 
   const updateRedFlagsFrequencyChart = () => {
-    if (redFlagsFrequencyChartRef.current) {
+    if (redFlagsFrequencyChartRef.current && statsData?.redFlagsFrequency) {
       if (charts.current.redFlagsFrequency) charts.current.redFlagsFrequency.destroy()
 
       const ctx = redFlagsFrequencyChartRef.current.getContext("2d")
       if (ctx) {
-        const flagCounts = calculateRedFlagFrequency()
-        const labels = Object.keys(flagCounts).map(formatFlagKey)
-        const values = Object.values(flagCounts)
+        const flagData = statsData.redFlagsFrequency
+        const labels = flagData.map((item: any) => formatFlagKey(item.flag_type))
+        const values = flagData.map((item: any) => item.count)
 
         charts.current.redFlagsFrequency = new Chart(ctx, {
           type: "pie",
@@ -185,21 +209,29 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
   }
 
   const updateMonthlyAnalysisChart = () => {
-    if (monthlyAnalysisChartRef.current) {
+    if (monthlyAnalysisChartRef.current && statsData?.monthlyAnalysis) {
       if (charts.current.monthlyAnalysis) charts.current.monthlyAnalysis.destroy()
 
       const ctx = monthlyAnalysisChartRef.current.getContext("2d")
       if (ctx) {
-        const monthlyData = calculateMonthlyAnalysis()
+        const monthlyData = statsData.monthlyAnalysis
+
+        // 日付をフォーマット
+        const labels = monthlyData.map((item: any) => {
+          const date = new Date(item.month)
+          return `${date.getFullYear()}年${date.getMonth() + 1}月`
+        })
+
+        const counts = monthlyData.map((item: any) => item.count)
 
         charts.current.monthlyAnalysis = new Chart(ctx, {
           type: "line",
           data: {
-            labels: monthlyData.labels,
+            labels: labels,
             datasets: [
               {
                 label: "分析件数",
-                data: monthlyData.counts,
+                data: counts,
                 fill: {
                   target: "origin",
                   above: "rgba(75, 192, 192, 0.2)",
@@ -254,12 +286,12 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
   }
 
   const updateRiskDistributionChart = () => {
-    if (riskDistributionChartRef.current) {
+    if (riskDistributionChartRef.current && statsData?.riskDistribution) {
       if (charts.current.riskDistribution) charts.current.riskDistribution.destroy()
 
       const ctx = riskDistributionChartRef.current.getContext("2d")
       if (ctx) {
-        const riskData = calculateRiskDistribution()
+        const riskData = statsData.riskDistribution
 
         charts.current.riskDistribution = new Chart(ctx, {
           type: "doughnut",
@@ -267,7 +299,7 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
             labels: ["安全", "要注意", "危険"],
             datasets: [
               {
-                data: [riskData.safe, riskData.warning, riskData.dangerous],
+                data: [riskData.safe_count, riskData.warning_count, riskData.dangerous_count],
                 backgroundColor: ["rgba(75, 192, 192, 0.7)", "rgba(255, 206, 86, 0.7)", "rgba(255, 99, 132, 0.7)"],
                 borderColor: ["rgba(75, 192, 192, 1)", "rgba(255, 206, 86, 1)", "rgba(255, 99, 132, 1)"],
                 borderWidth: 1,
@@ -305,72 +337,6 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
     }
   }
 
-  // スコア分布の計算
-  const calculateScoreDistribution = () => {
-    const distribution = [0, 0, 0, 0, 0]
-    analyses.forEach((item) => {
-      const score = item.analysisResult.safetyScore
-      const index = Math.min(Math.floor(score / 20), 4)
-      distribution[index]++
-    })
-    return distribution
-  }
-
-  // 危険フラグ頻度の計算
-  const calculateRedFlagFrequency = () => {
-    const counts: { [key: string]: number } = {
-      unrealisticPay: 0,
-      lackOfCompanyInfo: 0,
-      requestForPersonalInfo: 0,
-      unclearJobDescription: 0,
-      illegalActivity: 0,
-    }
-
-    analyses.forEach((item) => {
-      const flags = item.analysisResult.redFlags
-      for (const flag in flags) {
-        if (flags[flag as keyof typeof flags]) {
-          counts[flag]++
-        }
-      }
-    })
-
-    return counts
-  }
-
-  // 月別分析データの計算
-  const calculateMonthlyAnalysis = () => {
-    const months: { [key: string]: number } = {}
-    analyses.forEach((item) => {
-      const date = new Date(item.timestamp)
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
-      months[key] = (months[key] || 0) + 1
-    })
-
-    const sortedMonths = Object.keys(months).sort()
-    return {
-      labels: sortedMonths.map((m) => {
-        const [year, month] = m.split("-")
-        return `${year}年${month}月`
-      }),
-      counts: sortedMonths.map((month) => months[month]),
-    }
-  }
-
-  // リスク分布の計算
-  const calculateRiskDistribution = () => {
-    return analyses.reduce(
-      (acc: { safe: number; warning: number; dangerous: number }, item) => {
-        const score = item.analysisResult.safetyScore
-        if (score >= 80) acc.safe++
-        else if (score >= 40) acc.warning++
-        else acc.dangerous++
-        return acc
-      },
-      { safe: 0, warning: 0, dangerous: 0 },
-    )
-  }
-
   const formatFlagKey = (key: string) => {
     const translations: { [key: string]: string } = {
       unrealisticPay: "非現実的な高額報酬",
@@ -382,6 +348,12 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
     return translations[key] || key
   }
 
+  const totalAnalyses = statsData?.riskDistribution
+    ? statsData.riskDistribution.safe_count +
+      statsData.riskDistribution.warning_count +
+      statsData.riskDistribution.dangerous_count
+    : 0
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -391,7 +363,7 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
             <TooltipTrigger asChild>
               <div className="flex items-center text-sm text-muted-foreground">
                 <Info className="h-4 w-4 mr-1" />
-                <span>分析データ: {analyses.length}件</span>
+                <span>分析データ: {loading ? "読み込み中..." : `${totalAnalyses}件`}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
@@ -401,7 +373,24 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
         </TooltipProvider>
       </div>
 
-      {analyses.length > 0 ? (
+      {error && (
+        <Card className="mb-6">
+          <CardContent className="p-6 text-center text-red-600">{error}</CardContent>
+        </Card>
+      )}
+
+      {loading ? (
+        <div className="grid gap-6 md:grid-cols-2">
+          {[1, 2, 3, 4].map((i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <Skeleton className="h-6 w-48 mb-3" />
+                <Skeleton className="h-[300px] w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : statsData && totalAnalyses > 0 ? (
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardContent className="p-4">

@@ -1,41 +1,24 @@
-import { readdir, readFile } from "fs/promises"
-import path from "path"
 import { NextResponse } from "next/server"
-import type { AnalysisResult } from "@/types/analysis"
+import { getAnalysisResults } from "@/lib/supabase"
 
-// ログディレクトリの設定
-const LOG_DIR = path.join(process.cwd(), "logs")
-
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    try {
-      const files = await readdir(LOG_DIR)
+    // URLからクエリパラメータを取得
+    const url = new URL(request.url)
+    const sortBy = url.searchParams.get("sortBy") || "created_at"
+    const sortOrder = (url.searchParams.get("sortOrder") as "asc" | "desc") || "desc"
+    const filter = (url.searchParams.get("filter") as "all" | "safe" | "unsafe") || "all"
+    const limit = Number.parseInt(url.searchParams.get("limit") || "100", 10)
 
-      const jsonFiles = files.filter((file) => file.endsWith(".json"))
+    // Supabaseから分析結果を取得
+    const analyses = await getAnalysisResults({
+      sortBy,
+      sortOrder,
+      filter,
+      limit,
+    })
 
-      const analysesPromises = jsonFiles.map(async (file) => {
-        const filePath = path.join(LOG_DIR, file)
-        const content = await readFile(filePath, "utf8")
-        const data = JSON.parse(content) as AnalysisResult
-        return {
-          ...data,
-          filename: file,
-        }
-      })
-
-      const analyses = await Promise.all(analysesPromises)
-
-      // 日付順にソート（新しい順）
-      analyses.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-
-      return NextResponse.json(analyses)
-    } catch (error) {
-      // ディレクトリが存在しない場合は空の配列を返す
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return NextResponse.json([])
-      }
-      throw error
-    }
+    return NextResponse.json(analyses)
   } catch (error) {
     console.error("Error fetching past analyses:", error)
     return NextResponse.json({ error: "過去の分析結果の取得に失敗しました" }, { status: 500 })

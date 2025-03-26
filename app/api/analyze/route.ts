@@ -1,15 +1,11 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import { NextResponse } from "next/server"
-import { writeFile, mkdir } from "fs/promises"
-import path from "path"
 import { validateAndCompleteData } from "@/lib/analysis-utils"
+import { saveAnalysisToSupabase } from "@/lib/supabase"
 import type { AnalysisResult } from "@/types/analysis"
 
 // Gemini APIの設定
 const API_KEY = process.env.GEMINI_API_KEY
-
-// ログディレクトリの設定
-const LOG_DIR = path.join(process.cwd(), "logs")
 
 export async function POST(request: Request) {
   try {
@@ -72,56 +68,67 @@ ${jobDescription}
     const text = response.text()
 
     // JSON部分の抽出と解析
-    const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/{[\s\S]*}/)
+    let jsonData
+    try {
+      // まず、コードブロック内のJSONを探す
+      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/)
+      if (jsonMatch) {
+        jsonData = JSON.parse(jsonMatch[1].trim())
+      } else {
+        // コードブロックがない場合は、テキスト全体をJSONとして解析
+        jsonData = JSON.parse(text)
+      }
+    } catch (error) {
+      console.error("JSON解析エラー:", error)
+      console.log("AIからの応答:", text)
 
-    if (!jsonMatch) {
-      throw new Error("AIからの応答をJSONとして解析できませんでした")
+      // フォールバック: デフォルトの分析結果を生成
+      jsonData = {
+        isSafe: false,
+        safetyScore: 30,
+        warningFlags: ["AIによる分析に失敗しました。手動での確認をお勧めします。"],
+        reasonsForConcern: ["AIによる分析結果を正確に解析できませんでした。"],
+        legalIssues: [],
+        redFlags: {
+          unrealisticPay: false,
+          lackOfCompanyInfo: true,
+          requestForPersonalInfo: false,
+          unclearJobDescription: true,
+          illegalActivity: false,
+        },
+        safetyAnalysis:
+          "AIによる分析に技術的な問題が発生しました。この求人は自動的に「要注意」としてマークされています。手動での確認をお勧めします。",
+        recommendedActions: [
+          "この求人に応募する前に、会社の詳細情報を確認してください。",
+          "応募前に企業の公式サイトや評判を調査してください。",
+        ],
+        alternativeJobSuggestions: ["公式の求人サイトや人材紹介会社を通じた求人を探してみてください。"],
+        confidenceLevel: 30,
+      }
     }
-
-    const jsonData = JSON.parse(jsonMatch[0].replace(/```json|```/g, "").trim())
 
     // データの検証と補完
     validateAndCompleteData(jsonData)
 
-    // 分析ログを保存
-    await saveAnalysisLog(jobDescription, jsonData)
+    // 分析結果をSupabaseに保存
+    const savedData = await saveAnalysisToSupabase(jobDescription, jsonData)
 
-    return NextResponse.json(jsonData)
+    // 保存したデータをAPIレスポンスの形式に変換
+    const analysisResult: AnalysisResult = {
+      id: savedData.id,
+      timestamp: savedData.created_at,
+      jobDescription: jobDescription,
+      analysisResult: jsonData,
+      filename: savedData.id, // filenameの代わりにidを使用
+    }
+
+    return NextResponse.json(analysisResult)
   } catch (error) {
     console.error("Error during analysis:", error)
     return NextResponse.json(
       { error: "Analysis failed", message: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 },
     )
-  }
-}
-
-// 分析ログを保存
-async function saveAnalysisLog(jobDescription: string, result: any) {
-  try {
-    // ログディレクトリの作成
-    try {
-      await mkdir(LOG_DIR, { recursive: true })
-    } catch (error) {
-      console.error("Error creating log directory:", error)
-    }
-
-    const timestamp = new Date().toISOString()
-    const filename = `analysis-${timestamp.replace(/[:.]/g, "-")}.json`
-    const filePath = path.join(LOG_DIR, filename)
-
-    const logData: AnalysisResult = {
-      timestamp,
-      jobDescription,
-      analysisResult: result,
-      filename,
-    }
-
-    await writeFile(filePath, JSON.stringify(logData, null, 2), "utf8")
-    return true
-  } catch (error) {
-    console.error("Error saving analysis log:", error)
-    return false
   }
 }
 

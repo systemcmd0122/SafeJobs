@@ -50,25 +50,20 @@ export function AnalyzerTab({ setError, onAnalysisComplete }: AnalyzerTabProps) 
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || "分析に失敗しました")
+        const errorData = await response.json()
+        throw new Error(errorData.message || "分析に失敗しました")
       }
 
       const data = await response.json()
+      setResult(data)
 
-      // Create a properly structured result object
-      const resultObject: AnalysisResult = {
-        timestamp: new Date().toISOString(),
-        jobDescription,
-        analysisResult: data,
-        filename: `temp-${Date.now()}`,
-      }
-
-      setResult(resultObject)
+      // 分析結果を取得
       await onAnalysisComplete()
 
       // 結果までスクロール
-      document.getElementById("analysis-result")?.scrollIntoView({ behavior: "smooth" })
+      setTimeout(() => {
+        document.getElementById("analysis-result")?.scrollIntoView({ behavior: "smooth" })
+      }, 100)
     } catch (error) {
       if (error instanceof Error) {
         setError(`分析中にエラーが発生しました: ${error.message}`)
