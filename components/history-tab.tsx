@@ -6,24 +6,43 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { AnalysisResult } from "@/types/analysis"
 import { HistoryItem } from "@/components/history-item"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, RefreshCw } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 
 interface HistoryTabProps {
   analyses: AnalysisResult[]
   fetchAnalyses: () => Promise<AnalysisResult[]>
+  isLoading: boolean
 }
 
-export function HistoryTab({ analyses: initialAnalyses, fetchAnalyses }: HistoryTabProps) {
+export function HistoryTab({ analyses: initialAnalyses, fetchAnalyses, isLoading: parentLoading }: HistoryTabProps) {
   const [sortValue, setSortValue] = useState("created_at-desc")
   const [filterValue, setFilterValue] = useState("all")
   const [analyses, setAnalyses] = useState<AnalysisResult[]>(initialAnalyses)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isVisible, setIsVisible] = useState(false)
 
+  // コンポーネントがマウントされたときに表示状態を更新
   useEffect(() => {
-    loadAnalyses()
-  }, [sortValue, filterValue])
+    setIsVisible(true)
+    return () => setIsVisible(false)
+  }, [])
+
+  // 親コンポーネントから渡されたデータが更新されたときに状態を更新
+  useEffect(() => {
+    if (initialAnalyses && initialAnalyses.length > 0) {
+      setAnalyses(initialAnalyses)
+    }
+  }, [initialAnalyses])
+
+  // コンポーネントが表示されたときにデータを取得
+  useEffect(() => {
+    if (isVisible) {
+      loadAnalyses()
+    }
+  }, [isVisible, sortValue, filterValue])
 
   const loadAnalyses = async () => {
     try {
@@ -44,15 +63,34 @@ export function HistoryTab({ analyses: initialAnalyses, fetchAnalyses }: History
       const data = await response.json()
       setAnalyses(data)
     } catch (err) {
+      console.error("履歴データ取得エラー:", err)
       setError(err instanceof Error ? err.message : "過去の分析結果の取得中にエラーが発生しました")
     } finally {
       setLoading(false)
     }
   }
 
+  const handleRefresh = async () => {
+    await loadAnalyses()
+  }
+
+  const isLoadingData = loading || parentLoading
+
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4">過去の分析結果</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">過去の分析結果</h2>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={isLoadingData}
+          className="flex items-center gap-1"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoadingData ? "animate-spin" : ""}`} />
+          更新
+        </Button>
+      </div>
 
       {error && (
         <Alert variant="destructive" className="mb-4">
@@ -87,7 +125,7 @@ export function HistoryTab({ analyses: initialAnalyses, fetchAnalyses }: History
       </div>
 
       <div className="space-y-4">
-        {loading ? (
+        {isLoadingData ? (
           // ローディング中の表示
           Array.from({ length: 3 }).map((_, index) => (
             <Card key={index}>

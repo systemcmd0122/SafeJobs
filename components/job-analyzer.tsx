@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AnalyzerTab } from "@/components/analyzer-tab"
 import { HistoryTab } from "@/components/history-tab"
@@ -12,18 +12,45 @@ import type { AnalysisResult } from "@/types/analysis"
 export function JobAnalyzer() {
   const [error, setError] = useState<string | null>(null)
   const [analyses, setAnalyses] = useState<AnalysisResult[]>([])
+  const [activeTab, setActiveTab] = useState("analyzer")
+  const [isLoading, setIsLoading] = useState(false)
+
+  // コンポーネントマウント時に履歴データを取得
+  useEffect(() => {
+    fetchAnalyses()
+  }, [])
+
+  // タブ切り替え時に履歴データを再取得
+  useEffect(() => {
+    if (activeTab === "history" || activeTab === "statistics") {
+      fetchAnalyses()
+    }
+  }, [activeTab])
 
   const fetchAnalyses = async () => {
     try {
+      setIsLoading(true)
+      setError(null)
+
       const response = await fetch("/api/analyses")
-      if (!response.ok) throw new Error("過去の分析結果の取得に失敗しました")
+      if (!response.ok) {
+        throw new Error("過去の分析結果の取得に失敗しました")
+      }
+
       const data = await response.json()
       setAnalyses(data)
       return data
     } catch (error) {
+      console.error("履歴データ取得エラー:", error)
       setError("過去の分析結果の取得に失敗しました")
       return []
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
   }
 
   return (
@@ -35,10 +62,10 @@ export function JobAnalyzer() {
         </Alert>
       )}
 
-      <Tabs defaultValue="analyzer">
+      <Tabs defaultValue="analyzer" value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="analyzer">求人分析</TabsTrigger>
-          <TabsTrigger value="history">過去の分析結果</TabsTrigger>
+          <TabsTrigger value="history">分析履歴</TabsTrigger>
           <TabsTrigger value="statistics">統計情報</TabsTrigger>
         </TabsList>
 
@@ -47,11 +74,11 @@ export function JobAnalyzer() {
         </TabsContent>
 
         <TabsContent value="history">
-          <HistoryTab analyses={analyses} fetchAnalyses={fetchAnalyses} />
+          <HistoryTab analyses={analyses} fetchAnalyses={fetchAnalyses} isLoading={isLoading} />
         </TabsContent>
 
         <TabsContent value="statistics">
-          <StatisticsTab analyses={analyses} />
+          <StatisticsTab analyses={analyses} isLoading={isLoading} />
         </TabsContent>
       </Tabs>
     </div>

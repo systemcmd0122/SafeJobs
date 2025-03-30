@@ -1,5 +1,4 @@
 export interface AnalysisResult {
-  id: number
   timestamp: string
   jobDescription: string
   analysisResult: {

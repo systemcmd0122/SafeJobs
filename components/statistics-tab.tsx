@@ -4,17 +4,19 @@ import { useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import type { AnalysisResult } from "@/types/analysis"
 import { Chart, registerables } from "chart.js"
-import { Info } from "lucide-react"
+import { Info, RefreshCw } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
 
 Chart.register(...registerables)
 
 interface StatisticsTabProps {
   analyses: AnalysisResult[]
+  isLoading: boolean
 }
 
-export function StatisticsTab({ analyses }: StatisticsTabProps) {
+export function StatisticsTab({ analyses, isLoading: parentLoading }: StatisticsTabProps) {
   const safetyDistributionChartRef = useRef<HTMLCanvasElement>(null)
   const redFlagsFrequencyChartRef = useRef<HTMLCanvasElement>(null)
   const monthlyAnalysisChartRef = useRef<HTMLCanvasElement>(null)
@@ -22,6 +24,7 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [statsData, setStatsData] = useState<any>(null)
+  const [isVisible, setIsVisible] = useState(false)
 
   const charts = useRef<{ [key: string]: Chart | null }>({
     safetyDistribution: null,
@@ -30,22 +33,35 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
     riskDistribution: null,
   })
 
+  // コンポーネントがマウントされたときに表示状態を更新
   useEffect(() => {
-    fetchStatistics()
+    setIsVisible(true)
+    return () => setIsVisible(false)
   }, [])
+
+  // コンポーネントが表示されたときにデータを取得
+  useEffect(() => {
+    if (isVisible) {
+      fetchStatistics()
+    }
+  }, [isVisible])
 
   const fetchStatistics = async () => {
     try {
       setLoading(true)
+      setError(null)
+
       const response = await fetch("/api/statistics")
       if (!response.ok) {
         throw new Error("統計情報の取得に失敗しました")
       }
+
       const data = await response.json()
       setStatsData(data)
-      setLoading(false)
     } catch (err) {
+      console.error("統計データ取得エラー:", err)
       setError(err instanceof Error ? err.message : "統計情報の取得中にエラーが発生しました")
+    } finally {
       setLoading(false)
     }
   }
@@ -348,6 +364,12 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
     return translations[key] || key
   }
 
+  const handleRefresh = async () => {
+    await fetchStatistics()
+  }
+
+  const isLoadingData = loading || parentLoading
+
   const totalAnalyses = statsData?.riskDistribution
     ? statsData.riskDistribution.safe_count +
       statsData.riskDistribution.warning_count +
@@ -358,19 +380,31 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold">統計情報</h2>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center text-sm text-muted-foreground">
-                <Info className="h-4 w-4 mr-1" />
-                <span>分析データ: {loading ? "読み込み中..." : `${totalAnalyses}件`}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>これまでに分析された求人の統計情報です</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isLoadingData}
+            className="flex items-center gap-1"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoadingData ? "animate-spin" : ""}`} />
+            更新
+          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <Info className="h-4 w-4 mr-1" />
+                  <span>分析データ: {isLoadingData ? "読み込み中..." : `${totalAnalyses}件`}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>これまでに分析された求人の統計情報です</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
 
       {error && (
@@ -379,7 +413,7 @@ export function StatisticsTab({ analyses }: StatisticsTabProps) {
         </Card>
       )}
 
-      {loading ? (
+      {isLoadingData ? (
         <div className="grid gap-6 md:grid-cols-2">
           {[1, 2, 3, 4].map((i) => (
             <Card key={i}>

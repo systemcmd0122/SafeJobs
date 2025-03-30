@@ -57,8 +57,13 @@ export function AnalyzerTab({ setError, onAnalysisComplete }: AnalyzerTabProps) 
       const data = await response.json()
       setResult(data)
 
-      // 分析結果を取得
-      await onAnalysisComplete()
+      // 分析結果を取得し、確実に履歴を更新
+      try {
+        await onAnalysisComplete()
+        console.log("履歴データが更新されました")
+      } catch (updateError) {
+        console.error("履歴データの更新に失敗しました:", updateError)
+      }
 
       // 結果までスクロール
       setTimeout(() => {
