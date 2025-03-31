@@ -1,14 +1,18 @@
 "use client"
 
+import type React from "react"
+
 import { useEffect, useRef, useState } from "react"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
-import { CheckCircle, AlertTriangle, Download } from "lucide-react"
+import { CheckCircle, AlertTriangle, Download, MessageCircle, X } from "lucide-react"
 import type { AnalysisResult } from "@/types/analysis"
 import { Chart, registerables } from "chart.js"
 import { cn } from "@/lib/utils"
 import html2canvas from "html2canvas"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { AnalysisChat } from "@/components/analysis-chat"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 Chart.register(...registerables)
 
@@ -18,11 +22,14 @@ interface AnalysisResultDisplayProps {
 
 export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
   const resultRef = useRef<HTMLDivElement>(null)
+  const printableRef = useRef<HTMLDivElement>(null)
   const radarChartRef = useRef<HTMLCanvasElement>(null)
   const redFlagsChartRef = useRef<HTMLCanvasElement>(null)
   const riskFactorsChartRef = useRef<HTMLCanvasElement>(null)
   const comparativeChartRef = useRef<HTMLCanvasElement>(null)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [showChat, setShowChat] = useState(false)
+  const [activeTab, setActiveTab] = useState<string>("analysis")
 
   // Extract the actual analysis result data
   const analysisResult = "analysisResult" in result ? result.analysisResult : result
@@ -34,8 +41,8 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
     comparative: null,
   })
 
+  // コンポーネントマウント時にチャートを初期化
   useEffect(() => {
-    // チャートの初期化
     initializeCharts()
 
     return () => {
@@ -43,6 +50,18 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
       Object.values(charts.current).forEach((chart) => chart?.destroy())
     }
   }, [result])
+
+  // タブ切り替え時にチャートを再初期化
+  useEffect(() => {
+    if (activeTab === "analysis") {
+      // 少し遅延させてDOMが完全に描画された後にチャートを初期化
+      const timer = setTimeout(() => {
+        initializeCharts()
+      }, 100)
+
+      return () => clearTimeout(timer)
+    }
+  }, [activeTab])
 
   const initializeCharts = () => {
     // レーダーチャート
@@ -417,16 +436,110 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
     }
   }
 
+  const toggleChat = () => {
+    setShowChat(!showChat)
+    if (!showChat) {
+      setActiveTab("chat")
+    } else {
+      setActiveTab("analysis")
+    }
+  }
+
   return (
     <div ref={resultRef} className="space-y-6 bg-background p-6 rounded-lg">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">求人安全性分析結果</h2>
-        <Button onClick={downloadAsImage} disabled={isDownloading} className="download-btn" variant="outline" size="sm">
-          <Download className="h-4 w-4 mr-2" />
-          {isDownloading ? "処理中..." : "画像として保存"}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={toggleChat} variant="outline" size="sm" className="flex items-center gap-1">
+            {showChat ? (
+              <>
+                <X className="h-4 w-4" />
+                チャットを閉じる
+              </>
+            ) : (
+              <>
+                <MessageCircle className="h-4 w-4" />
+                AIに質問する
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={downloadAsImage}
+            disabled={isDownloading}
+            className="download-btn"
+            variant="outline"
+            size="sm"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            {isDownloading ? "処理中..." : "画像として保存"}
+          </Button>
+        </div>
       </div>
 
+      {showChat ? (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="analysis">分析結果</TabsTrigger>
+            <TabsTrigger value="chat">AIチャット</TabsTrigger>
+          </TabsList>
+          <TabsContent value="analysis" className="mt-4">
+            <AnalysisContent
+              analysisResult={analysisResult}
+              getScoreColor={getScoreColor}
+              getScoreText={getScoreText}
+              formatFlagKey={formatFlagKey}
+              radarChartRef={radarChartRef}
+              redFlagsChartRef={redFlagsChartRef}
+              riskFactorsChartRef={riskFactorsChartRef}
+              comparativeChartRef={comparativeChartRef}
+              result={result}
+            />
+          </TabsContent>
+          <TabsContent value="chat" className="mt-4">
+            <AnalysisChat result={result} />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <AnalysisContent
+          analysisResult={analysisResult}
+          getScoreColor={getScoreColor}
+          getScoreText={getScoreText}
+          formatFlagKey={formatFlagKey}
+          radarChartRef={radarChartRef}
+          redFlagsChartRef={redFlagsChartRef}
+          riskFactorsChartRef={riskFactorsChartRef}
+          comparativeChartRef={comparativeChartRef}
+          result={result}
+        />
+      )}
+    </div>
+  )
+}
+
+// 分析結果コンテンツを別コンポーネントとして切り出し
+function AnalysisContent({
+  analysisResult,
+  getScoreColor,
+  getScoreText,
+  formatFlagKey,
+  radarChartRef,
+  redFlagsChartRef,
+  riskFactorsChartRef,
+  comparativeChartRef,
+  result,
+}: {
+  analysisResult: any
+  getScoreColor: (score: number) => string
+  getScoreText: (score: number) => string
+  formatFlagKey: (key: string) => string
+  radarChartRef: React.RefObject<HTMLCanvasElement>
+  redFlagsChartRef: React.RefObject<HTMLCanvasElement>
+  riskFactorsChartRef: React.RefObject<HTMLCanvasElement>
+  comparativeChartRef: React.RefObject<HTMLCanvasElement>
+  result: AnalysisResult
+}) {
+  return (
+    <>
       <div
         className={cn(
           "p-4 rounded-lg flex items-center gap-3",
@@ -655,7 +768,7 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
           ※この分析結果はAIによる自動判定であり、実際の求人の安全性を保証するものではありません。応募の際は十分にご注意ください。
         </p>
       </div>
-    </div>
+    </>
   )
 }
 
