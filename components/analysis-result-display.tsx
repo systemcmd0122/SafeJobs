@@ -5,7 +5,7 @@ import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
-import { CheckCircle, AlertTriangle, Download, MessageCircle, X } from "lucide-react"
+import { CheckCircle, AlertTriangle, Download, MessageCircle, X, Save } from "lucide-react"
 import type { AnalysisResult } from "@/types/analysis"
 import { Chart, registerables } from "chart.js"
 import { cn } from "@/lib/utils"
@@ -763,8 +763,25 @@ function AnalysisContent({
       )}
 
       <div className="text-xs text-muted-foreground border-t pt-4 mt-8">
-        <p>分析日時: {new Date(result.timestamp).toLocaleString("ja-JP")}</p>
-        <p>
+        <div className="flex justify-between items-center">
+          <p>分析日時: {new Date(result.timestamp).toLocaleString("ja-JP")}</p>
+          {result.savedToHistory !== undefined && (
+            <p className={`flex items-center gap-1 ${result.savedToHistory ? "text-green-600" : "text-amber-600"}`}>
+              {result.savedToHistory ? (
+                <>
+                  <Save className="h-3.5 w-3.5" />
+                  <span>履歴に保存済み</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  <span>履歴に保存されていません</span>
+                </>
+              )}
+            </p>
+          )}
+        </div>
+        <p className="mt-2">
           ※この分析結果はAIによる自動判定であり、実際の求人の安全性を保証するものではありません。応募の際は十分にご注意ください。
         </p>
       </div>

@@ -1,4 +1,5 @@
 export interface AnalysisResult {
+  id: string
   timestamp: string
   jobDescription: string
   analysisResult: {
@@ -20,5 +21,6 @@ export interface AnalysisResult {
     confidenceLevel: number
   }
   filename: string
+  savedToHistory?: boolean // 履歴に保存されたかどうかのフラグを追加
 }
 

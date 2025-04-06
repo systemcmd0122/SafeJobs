@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Gemini API key is not set in environment variables" }, { status: 500 })
     }
 
-    const { jobDescription } = await request.json()
+    const { jobDescription, saveToHistory = false } = await request.json()
 
     if (!jobDescription) {
       return NextResponse.json({ error: "求人内容が必要です" }, { status: 400 })
@@ -43,22 +43,22 @@ ${jobDescription}
 
 以下の形式でJSON形式で回答してください。全ての項目を省略せず含めてください:
 {
-    "isSafe": boolean, // 安全な求人かどうか
-    "safetyScore": number, // 0-100の安全性スコア（高いほど安全）
-    "warningFlags": [string], // 警告フラグのリスト
-    "reasonsForConcern": [string], // 懸念事項のリスト
-    "legalIssues": [string], // 法的問題点のリスト
-    "redFlags": { // 危険シグナル
-        "unrealisticPay": boolean, // 非現実的な高額報酬
-        "lackOfCompanyInfo": boolean, // 会社情報の欠如
-        "requestForPersonalInfo": boolean, // 個人情報の不審な要求
-        "unclearJobDescription": boolean, // 曖昧な仕事内容
-        "illegalActivity": boolean // 違法行為の示唆
-    },
-    "safetyAnalysis": string, // 詳細な安全性分析（300文字以上）
-    "recommendedActions": [string], // 推奨される行動のリスト
-    "alternativeJobSuggestions": [string], // 代替求人の提案
-    "confidenceLevel": number // 0-100の分析確信度（高いほど確実）
+  "isSafe": boolean, // 安全な求人かどうか
+  "safetyScore": number, // 0-100の安全性スコア（高いほど安全）
+  "warningFlags": [string], // 警告フラグのリスト
+  "reasonsForConcern": [string], // 懸念事項のリスト
+  "legalIssues": [string], // 法的問題点のリスト
+  "redFlags": { // 危険シグナル
+      "unrealisticPay": boolean, // 非現実的な高額報酬
+      "lackOfCompanyInfo": boolean, // 会社情報の欠如
+      "requestForPersonalInfo": boolean, // 個人情報の不審な要求
+      "unclearJobDescription": boolean, // 曖昧な仕事内容
+      "illegalActivity": boolean // 違法行為の示唆
+  },
+  "safetyAnalysis": string, // 詳細な安全性分析（300文字以上）
+  "recommendedActions": [string], // 推奨される行動のリスト
+  "alternativeJobSuggestions": [string], // 代替求人の提案
+  "confidenceLevel": number // 0-100の分析確信度（高いほど確実）
 }
 
 回答は必ずJSON形式のみとし、前後に余計な文章を含めないでください。`
@@ -110,8 +110,17 @@ ${jobDescription}
     // データの検証と補完
     validateAndCompleteData(jsonData)
 
-    // 分析結果をSupabaseに保存
-    const savedData = await saveAnalysisToSupabase(jobDescription, jsonData)
+    // 分析結果をSupabaseに保存（ユーザーが同意した場合のみ）
+    let savedData
+    if (saveToHistory) {
+      savedData = await saveAnalysisToSupabase(jobDescription, jsonData)
+    } else {
+      // 保存しない場合は一時的なIDを生成
+      savedData = {
+        id: `temp-${Date.now()}`,
+        created_at: new Date().toISOString(),
+      }
+    }
 
     // 保存したデータをAPIレスポンスの形式に変換
     const analysisResult: AnalysisResult = {
@@ -120,6 +129,7 @@ ${jobDescription}
       jobDescription: jobDescription,
       analysisResult: jsonData,
       filename: savedData.id, // filenameの代わりにidを使用
+      savedToHistory: saveToHistory, // 履歴に保存されたかどうかのフラグを追加
     }
 
     return NextResponse.json(analysisResult)

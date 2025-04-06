@@ -8,7 +8,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
 import type { AnalysisResult } from "@/types/analysis"
 import { AnalysisResultDisplay } from "@/components/analysis-result-display"
+import { AnalysisConsentModal } from "@/components/analysis-consent-modal"
 import { Loader2 } from "lucide-react"
+import { useAnalysisConsent } from "@/hooks/use-analysis-consent"
 
 // サンプル求人データ
 const SAMPLE_JOBS = {
@@ -28,6 +30,10 @@ export function AnalyzerTab({ setError, onAnalysisComplete }: AnalyzerTabProps) 
   const [jobDescription, setJobDescription] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [result, setResult] = useState<AnalysisResult | null>(null)
+  const [showConsentModal, setShowConsentModal] = useState(false)
+
+  // 解析結果保存の同意状態を管理するカスタムフック
+  const { hasConsented, setConsent, shouldAskForConsent } = useAnalysisConsent()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -41,12 +47,16 @@ export function AnalyzerTab({ setError, onAnalysisComplete }: AnalyzerTabProps) 
       setIsAnalyzing(true)
       setError(null)
 
+      // 解析を実行（保存はしない）
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ jobDescription }),
+        body: JSON.stringify({
+          jobDescription,
+          saveToHistory: false, // 初回は保存しない
+        }),
       })
 
       if (!response.ok) {
@@ -55,20 +65,19 @@ export function AnalyzerTab({ setError, onAnalysisComplete }: AnalyzerTabProps) 
       }
 
       const data = await response.json()
-      setResult(data)
 
-      // 分析結果を取得し、確実に履歴を更新
-      try {
-        await onAnalysisComplete()
-        console.log("履歴データが更新されました")
-      } catch (updateError) {
-        console.error("履歴データの更新に失敗しました:", updateError)
-      }
+      // 解析結果を表示
+      setResult(data)
 
       // 結果までスクロール
       setTimeout(() => {
         document.getElementById("analysis-result")?.scrollIntoView({ behavior: "smooth" })
       }, 100)
+
+      // 同意確認が必要かどうかを判断し、必要であれば同意モーダルを表示
+      if (shouldAskForConsent()) {
+        setShowConsentModal(true)
+      }
     } catch (error) {
       if (error instanceof Error) {
         setError(`分析中にエラーが発生しました: ${error.message}`)
@@ -78,6 +87,54 @@ export function AnalyzerTab({ setError, onAnalysisComplete }: AnalyzerTabProps) 
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  // 履歴に保存する処理
+  const saveToHistory = async () => {
+    if (!result) return
+
+    try {
+      // 履歴に保存するAPIリクエスト
+      const saveResponse = await fetch("/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jobDescription: result.jobDescription,
+          saveToHistory: true,
+        }),
+      })
+
+      if (!saveResponse.ok) {
+        throw new Error("履歴の保存に失敗しました")
+      }
+
+      const savedData = await saveResponse.json()
+
+      // 保存済みの結果で更新
+      setResult(savedData)
+
+      // 履歴データを更新
+      await onAnalysisComplete()
+    } catch (error) {
+      console.error("履歴保存エラー:", error)
+      setError("履歴の保存に失敗しました。ただし、分析結果は表示されています。")
+    }
+  }
+
+  // 同意モーダルでの選択を処理
+  const handleConsentDecision = async (consent: boolean) => {
+    // 同意状態を保存
+    setConsent(consent)
+
+    if (consent && result) {
+      // 同意した場合は履歴に保存
+      await saveToHistory()
+    }
+
+    // モーダルを閉じる
+    setShowConsentModal(false)
   }
 
   const loadSampleJob = (sampleType: keyof typeof SAMPLE_JOBS) => {
@@ -172,6 +229,13 @@ export function AnalyzerTab({ setError, onAnalysisComplete }: AnalyzerTabProps) 
           </Card>
         </div>
       )}
+
+      {/* 解析結果保存の同意モーダル */}
+      <AnalysisConsentModal
+        open={showConsentModal}
+        onOpenChange={setShowConsentModal}
+        onConsent={handleConsentDecision}
+      />
     </div>
   )
 }
