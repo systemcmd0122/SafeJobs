@@ -30,6 +30,7 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
   const [isDownloading, setIsDownloading] = useState(false)
   const [showChat, setShowChat] = useState(false)
   const [activeTab, setActiveTab] = useState<string>("analysis")
+  const [chartsInitialized, setChartsInitialized] = useState(false)
 
   // Extract the actual analysis result data
   const analysisResult = "analysisResult" in result ? result.analysisResult : result
@@ -41,32 +42,63 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
     comparative: null,
   })
 
-  // コンポーネントマウント時にチャートを初期化
+  // コンポーネントマウント時に一度だけチャートを初期化
   useEffect(() => {
-    initializeCharts()
-
-    return () => {
-      // クリーンアップ
-      Object.values(charts.current).forEach((chart) => chart?.destroy())
-    }
-  }, [result])
-
-  // タブ切り替え時にチャートを再初期化
-  useEffect(() => {
-    if (activeTab === "analysis") {
-      // 少し遅延させてDOMが完全に描画された後にチャートを初期化
+    if (!chartsInitialized) {
       const timer = setTimeout(() => {
         initializeCharts()
-      }, 100)
+        setChartsInitialized(true)
+      }, 300) // DOMが確実に準備できるよう少し待機
+
+      return () => {
+        clearTimeout(timer)
+        // クリーンアップ
+        destroyAllCharts()
+      }
+    }
+    
+    // コンポーネントのアンマウント時にチャートを破棄
+    return () => {
+      destroyAllCharts()
+    }
+  }, [result, chartsInitialized])
+
+  // タブ切り替え時のチャート再初期化
+  useEffect(() => {
+    if (activeTab === "analysis" && chartsInitialized) {
+      // タブが分析結果に戻ったときにチャートを再描画
+      const timer = setTimeout(() => {
+        destroyAllCharts()
+        initializeCharts()
+      }, 300)
 
       return () => clearTimeout(timer)
     }
-  }, [activeTab])
+  }, [activeTab, chartsInitialized])
+
+  // すべてのチャートを破棄する関数
+  const destroyAllCharts = () => {
+    Object.values(charts.current).forEach((chart) => {
+      if (chart) {
+        chart.destroy()
+      }
+    })
+    
+    // チャート参照をリセット
+    charts.current = {
+      radar: null,
+      redFlags: null,
+      riskFactors: null,
+      comparative: null,
+    }
+  }
 
   const initializeCharts = () => {
     // レーダーチャート
     if (radarChartRef.current) {
-      if (charts.current.radar) charts.current.radar.destroy()
+      if (charts.current.radar) {
+        charts.current.radar.destroy()
+      }
 
       const ctx = radarChartRef.current.getContext("2d")
       if (ctx) {
@@ -155,7 +187,9 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
 
     // 危険シグナルチャート
     if (redFlagsChartRef.current) {
-      if (charts.current.redFlags) charts.current.redFlags.destroy()
+      if (charts.current.redFlags) {
+        charts.current.redFlags.destroy()
+      }
 
       const ctx = redFlagsChartRef.current.getContext("2d")
       if (ctx) {
@@ -173,9 +207,11 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
                 label: "危険度",
                 data: redFlagsData.map((d) => d.value),
                 backgroundColor: redFlagsData.map((d) =>
-                  d.value > 0 ? "rgba(255, 99, 132, 0.7)" : "rgba(75, 192, 192, 0.7)",
+                  d.value > 0 ? "rgba(255, 99, 132, 0.7)" : "rgba(75, 192, 192, 0.7)"
                 ),
-                borderColor: redFlagsData.map((d) => (d.value > 0 ? "rgba(255, 99, 132, 1)" : "rgba(75, 192, 192, 1)")),
+                borderColor: redFlagsData.map((d) => 
+                  d.value > 0 ? "rgba(255, 99, 132, 1)" : "rgba(75, 192, 192, 1)"
+                ),
                 borderWidth: 1,
                 borderRadius: 4,
               },
@@ -225,7 +261,9 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
 
     // リスク要因チャート
     if (riskFactorsChartRef.current) {
-      if (charts.current.riskFactors) charts.current.riskFactors.destroy()
+      if (charts.current.riskFactors) {
+        charts.current.riskFactors.destroy()
+      }
 
       const ctx = riskFactorsChartRef.current.getContext("2d")
       if (ctx) {
@@ -270,7 +308,9 @@ export function AnalysisResultDisplay({ result }: AnalysisResultDisplayProps) {
 
     // 比較チャート
     if (comparativeChartRef.current) {
-      if (charts.current.comparative) charts.current.comparative.destroy()
+      if (charts.current.comparative) {
+        charts.current.comparative.destroy()
+      }
 
       const ctx = comparativeChartRef.current.getContext("2d")
       if (ctx) {
@@ -658,7 +698,7 @@ function AnalysisContent({
         </div>
       </div>
 
-      {analysisResult.warningFlags.length > 0 && (
+      {analysisResult.warningFlags && analysisResult.warningFlags.length > 0 && (
         <div>
           <h3 className="text-lg font-medium mb-2">警告フラグ</h3>
           <div className="bg-amber-50 p-4 rounded-lg">
@@ -681,7 +721,7 @@ function AnalysisContent({
             <div className="text-sm text-muted-foreground space-y-4">
               <p>{analysisResult.safetyAnalysis}</p>
 
-              {analysisResult.reasonsForConcern.length > 0 && (
+              {analysisResult.reasonsForConcern && analysisResult.reasonsForConcern.length > 0 && (
                 <div>
                   <h4 className="font-medium text-foreground mb-2">懸念事項</h4>
                   <ul className="list-disc pl-5 space-y-1">
@@ -692,7 +732,7 @@ function AnalysisContent({
                 </div>
               )}
 
-              {analysisResult.legalIssues.length > 0 && (
+              {analysisResult.legalIssues && analysisResult.legalIssues.length > 0 && (
                 <div>
                   <h4 className="font-medium text-foreground mb-2">法的問題点</h4>
                   <ul className="list-disc pl-5 space-y-1">
@@ -726,7 +766,7 @@ function AnalysisContent({
         </div>
       </div>
 
-      {analysisResult.recommendedActions.length > 0 && (
+      {analysisResult.recommendedActions && analysisResult.recommendedActions.length > 0 && (
         <div>
           <h3 className="text-lg font-medium mb-2">推奨される行動</h3>
           <div className="bg-blue-50 p-4 rounded-lg">
@@ -744,7 +784,7 @@ function AnalysisContent({
         </div>
       )}
 
-      {analysisResult.alternativeJobSuggestions.length > 0 && (
+      {analysisResult.alternativeJobSuggestions && analysisResult.alternativeJobSuggestions.length > 0 && (
         <div>
           <h3 className="text-lg font-medium mb-2">代替求人の提案</h3>
           <div className="bg-green-50 p-4 rounded-lg">
